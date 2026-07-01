@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>水邊圍邨巴士到站時間 (橫向墨水屏單欄全線版)</title>
+    <style>
+        :root {
+            --bg-color: #ffffff;
+            --text-main: #000000;
+            --border-line: #000000;
+            --card-bg: #ffffff;
+        }
+
+        /* 鎖定橫向滿版，隱藏捲軸 */
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            padding: 15px 30px;
+            box-sizing: border-box;
+        }
+
+        header {
+            text-align: center;
+            border-bottom: 4px solid var(--border-line);
+            padding-bottom: 5px;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 2rem;
+            font-weight: 900;
+            letter-spacing: 2px;
+        }
+
+        .status-bar {
+            padding: 8px 5px;
+            font-size: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid var(--border-line);
+            font-weight: bold;
+        }
+
+        .update-btn {
+            background-color: #ffffff;
+            color: #000000;
+            border: 2px solid var(--border-line);
+            padding: 2px 12px;
+            border-radius: 0;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 0.85rem;
+        }
+
+        .update-btn:active {
+            background-color: #000000;
+            color: #ffffff;
+        }
+
+        .content-area {
+            flex: 1;
+            margin-top: 15px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .eta-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .eta-table th, .eta-table td {
+            padding: 12px 10px;
+            text-align: left;
+            border-bottom: 1px dashed var(--border-line);
+            color: var(--text-main);
+            font-size: 1.2rem; /* 放大字體，單欄看更爽快 */
+        }
+
+        .eta-table th {
+            font-size: 0.95rem;
+            font-weight: bold;
+            border-bottom: 2px solid var(--border-line);
+            padding-bottom: 6px;
+        }
+
+        .route-badge {
+            border: 3px solid var(--border-line);
+            padding: 1px 6px;
+            font-weight: 900;
+            font-size: 1.2rem;
+            display: inline-block;
+            min-width: 65px;
+            text-align: center;
+        }
+
+        .dest-text {
+            font-weight: 900;
+        }
+
+        /* 墨水屏反相高對比提示 */
+        .time-highlight {
+            background-color: #000000;
+            color: #ffffff;
+            padding: 2px 8px;
+            font-weight: 900;
+            display: inline-block;
+        }
+
+        .loading, .error-msg {
+            text-align: center;
+            padding: 50px;
+            background: white;
+            border: 2px dashed var(--border-line);
+            margin-top: 20px;
+            font-weight: bold;
+            font-size: 1.3rem;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>水邊圍邨 巴士到站大看板</h1>
+    </header>
+    
+    <div class="status-bar">
+        <div>
+            <span id="update-time">正在載入數據...</span>
+            <span style="font-weight: normal; margin-left: 10px; color: #555;">(30秒自動更新)</span>
+        </div>
+        <button class="update-btn" onclick="fetchAllBusETA()">手動更新</button>
+    </div>
+
+    <div class="content-area">
+        <div id="eta-container">
+            <div class="loading">正在獲取所有路線實時時間...</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 水邊圍邨站的兩個方向站點 ID 與各自停靠的路線
+    const STATIONS_CONFIG = [
+        {
+            stopId: '8097C239EBB9C5AF', // 西行站 (往天水圍/屯門/機場)
+            routes: ['53', '269D', 'E36', 'E36C', 'E36S', 'N269']
+        },
+        {
+            stopId: 'E478149A709E7B15', // 東行站 (往元朗/上水/九龍)
+            routes: ['64X', '268B', '276P', 'N30', 'N276']
+        }
+    ];
+
+    async function fetchAllBusETA() {
+        const container = document.getElementById('eta-container');
+        const timeSpan = document.getElementById('update-time');
+        const now = new Date();
+        let allCombinedData = [];
+
+        try {
+            // 同時請求兩個站點的 API
+            const requests = STATIONS_CONFIG.map(config => 
+                fetch(`https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/${config.stopId}`)
+                    .then(res => res.ok ? res.json() : { data: [] })
+                    .then(result => {
+                        // 篩選出該站點指定的路線
+                        return result.data.filter(item => config.routes.includes(item.route));
+                    })
+                    .catch(() => [])
+            );
+
+            // 等待所有數據下載完畢並合併
+            const resultsArray = await Promise.all(requests);
+            resultsArray.forEach(data => {
+                allCombinedData = allCombinedData.concat(data);
+            });
+
+            // 更新時間標籤
+            const timeString = now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            timeSpan.innerText = `最後更新: ${timeString}`;
+
+            if (allCombinedData.length === 0) {
+                container.innerHTML = '<div class="loading">目前沒有任何巴士班次服務。</div>';
+                return;
+            }
+
+            // 【核心優化】不分方向，全部依照到站時間由先到後進行「大排序」
+            allCombinedData.sort((a, b) => new Date(a.eta) - new Date(b.eta));
+
+            // 限制最多顯示 7 班車，確保橫向一版可以塞滿且不超出
+            const limitedData = allCombinedData.slice(0, 7);
+
+            let htmlContent = `
+                <table class="eta-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 20%;">路線</th>
+                            <th style="width: 55%;">目的地</th>
+                            <th style="width: 25%;">預計到站</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            limitedData.forEach(etaItem => {
+                let timeDisplay = '---';
+                let isArriving = false;
+
+                if (etaItem.eta) {
+                    const etaTime = new Date(etaItem.eta);
+                    const diffMs = etaTime - now;
+                    const diffMins = Math.max(0, Math.ceil(diffMs / 60000));
+
+                    if (diffMins <= 1) {
+                        timeDisplay = '即將到站';
+                        isArriving = true;
+                    } else {
+                        timeDisplay = `${diffMins} 分鐘`;
+                    }
+                }
+
+                htmlContent += `
+                    <tr>
+                        <td><span class="route-badge">${etaItem.route}</span></td>
+                        <td><span class="dest-text">${etaItem.dest_tc}</span></td>
+                        <td><span class="${isArriving ? 'time-highlight' : ''}">${timeDisplay}</span></td>
+                    </tr>
+                `;
+            });
+
+            htmlContent += `</tbody></table>`;
+            container.innerHTML = htmlContent;
+
+        } catch (error) {
+            console.error('數據處理出錯:', error);
+            timeSpan.innerText = '更新失敗';
+            container.innerHTML = `<div class="error-msg"><p>未能載入實時數據</p></div>`;
+        }
+    }
+
+    // 網頁載入時先執行一次
+    fetchAllBusETA();
+
+    // 保持不變：每 30 秒自動更新一次 (30000 毫秒)
+    setInterval(fetchAllBusETA, 30000);
+</script>
+
+</body>
+</html>
